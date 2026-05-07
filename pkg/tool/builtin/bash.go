@@ -178,7 +178,7 @@ func (b *BashTool) Execute(ctx context.Context, params map[string]interface{}) (
 		defer cancel()
 	}
 
-	cmd := exec.CommandContext(execCtx, "bash", "-c", command)
+	cmd := newBashExecCmd(execCtx, command)
 	// Leave Env nil so the child inherits the current environment without
 	// copying os.Environ() on every invocation (large envs made simple tools slow).
 	cmd.Dir = workdir
