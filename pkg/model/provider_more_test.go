@@ -55,10 +55,10 @@ func TestOpenAIProviderModelCaching(t *testing.T) {
 	}
 }
 
-func TestOpenAIProviderModelMissingAPIKey(t *testing.T) {
-	p := &OpenAIProvider{}
+func TestOpenAIProviderModelAllowsMissingAPIKey(t *testing.T) {
+	p := &OpenAIProvider{BaseURL: "http://localhost:11434/v1"}
 	t.Setenv("OPENAI_API_KEY", "")
-	if _, err := p.Model(context.Background()); err == nil {
-		t.Fatalf("expected error for missing api key")
+	if _, err := p.Model(context.Background()); err != nil {
+		t.Fatalf("unexpected error for local model without api key: %v", err)
 	}
 }

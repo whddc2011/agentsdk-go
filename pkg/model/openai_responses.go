@@ -31,13 +31,9 @@ type openaiResponsesService interface {
 
 // NewOpenAIResponses constructs an OpenAI model using the Responses API.
 func NewOpenAIResponses(cfg OpenAIConfig) (Model, error) {
-	apiKey := strings.TrimSpace(cfg.APIKey)
-	if apiKey == "" {
-		return nil, errors.New("openai: api key required")
-	}
-
-	opts := []option.RequestOption{
-		option.WithAPIKey(apiKey),
+	var opts []option.RequestOption
+	if apiKey := strings.TrimSpace(cfg.APIKey); apiKey != "" {
+		opts = append(opts, option.WithAPIKey(apiKey))
 	}
 	if cfg.BaseURL != "" {
 		opts = append(opts, option.WithBaseURL(cfg.BaseURL))

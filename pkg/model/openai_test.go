@@ -55,20 +55,20 @@ func TestNewOpenAI(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "missing API key",
+			name: "missing API key (local LLM)",
 			cfg: OpenAIConfig{
-				Model: "gpt-4o",
+				Model:   "gpt-4o",
+				BaseURL: "http://localhost:11434/v1",
 			},
-			wantErr: true,
-			errMsg:  "openai: api key required",
+			wantErr: false,
 		},
 		{
-			name: "whitespace API key",
+			name: "whitespace API key treated as unset",
 			cfg: OpenAIConfig{
-				APIKey: "   ",
+				APIKey:  "   ",
+				BaseURL: "http://localhost:11434/v1",
 			},
-			wantErr: true,
-			errMsg:  "openai: api key required",
+			wantErr: false,
 		},
 		{
 			name: "default model when empty",

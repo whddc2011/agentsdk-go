@@ -124,17 +124,15 @@ func (m *anthropicModel) requestOptions() []option.RequestOption {
 // NewAnthropic constructs a production-ready Anthropic-backed Model.
 func NewAnthropic(cfg AnthropicConfig) (Model, error) {
 	apiKey := strings.TrimSpace(cfg.APIKey)
-	if apiKey == "" {
-		return nil, errors.New("anthropic: api key required")
-	}
 
-	opts := []option.RequestOption{
+	var opts []option.RequestOption
+	if apiKey != "" {
 		// Explicitly set the API key so it overrides any ANTHROPIC_AUTH_TOKEN
 		// or ANTHROPIC_API_KEY from the environment (DefaultClientOptions).
-		option.WithAPIKey(apiKey),
+		opts = append(opts, option.WithAPIKey(apiKey))
 		// Also set auth token for providers that require Authorization: Bearer
 		// (e.g. DeepSeek's Anthropic-compatible endpoint).
-		option.WithAuthToken(apiKey),
+		opts = append(opts, option.WithAuthToken(apiKey))
 	}
 	if cfg.BaseURL != "" {
 		opts = append(opts, option.WithBaseURL(cfg.BaseURL))

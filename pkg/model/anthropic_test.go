@@ -4,9 +4,9 @@ import (
 	"testing"
 )
 
-func TestNewAnthropicRequiresAPIKey(t *testing.T) {
-	if _, err := NewAnthropic(AnthropicConfig{}); err == nil {
-		t.Fatalf("expected api key error")
+func TestNewAnthropicAllowsMissingAPIKey(t *testing.T) {
+	if _, err := NewAnthropic(AnthropicConfig{BaseURL: "http://localhost:11434"}); err != nil {
+		t.Fatalf("unexpected error for local model without api key: %v", err)
 	}
 }
 

@@ -58,11 +58,14 @@ func (s stubCompletions) NewStreaming(ctx context.Context, params openai.ChatCom
 	return s.newStreamingFn(ctx, params, opts...)
 }
 
-func TestNewOpenAI_RequiresAPIKey(t *testing.T) {
+func TestNewOpenAI_AllowsMissingAPIKey(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "")
-	_, err := NewOpenAI(OpenAIConfig{})
-	if err == nil {
-		t.Fatalf("expected error")
+	mdl, err := NewOpenAI(OpenAIConfig{BaseURL: "http://localhost:11434/v1"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mdl == nil {
+		t.Fatalf("expected model")
 	}
 }
 

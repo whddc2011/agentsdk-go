@@ -104,12 +104,12 @@ func TestAnthropicProviderCacheExpiry(t *testing.T) {
 	}
 }
 
-func TestAnthropicProviderModelMissingAPIKey(t *testing.T) {
-	p := &AnthropicProvider{}
+func TestAnthropicProviderModelAllowsMissingAPIKey(t *testing.T) {
+	p := &AnthropicProvider{BaseURL: "http://localhost:11434"}
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
-	if _, err := p.Model(context.Background()); err == nil {
-		t.Fatalf("expected error for missing api key")
+	if _, err := p.Model(context.Background()); err != nil {
+		t.Fatalf("unexpected error for local model without api key: %v", err)
 	}
 }
 
