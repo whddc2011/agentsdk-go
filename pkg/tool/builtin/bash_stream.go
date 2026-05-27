@@ -60,7 +60,7 @@ func (b *BashTool) StreamExecute(ctx context.Context, params map[string]interfac
 		defer cancel()
 	}
 
-	cmd := exec.CommandContext(execCtx, "bash", "-c", command)
+	cmd := newBashExecCmd(execCtx, command)
 	// Nil Env inherits the process environment without copying os.Environ().
 	cmd.Dir = workdir
 
