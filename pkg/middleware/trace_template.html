@@ -155,7 +155,10 @@
     details.open = idx === events.length - 1;
     const summary = document.createElement('summary');
     const badges = [];
-    evt.duration_ms && badges.push('<span class="chip chip-duration">' + evt.duration_ms + ' ms</span>');
+    const stageLabel = evt.stage === 'before_tool' || evt.stage === 'after_tool'
+      ? 'tool'
+      : (evt.stage === 'before_agent' || evt.stage === 'after_agent' ? 'model' : evt.stage);
+    evt.duration_ms && badges.push('<span class="chip chip-duration">' + evt.duration_ms + ' ms · ' + stageLabel + '</span>');
     const tokens = getTokens(evt);
     tokens && badges.push('<span class="chip chip-token">' + tokens + ' tok</span>');
     evt.error && badges.push('<span class="chip chip-error">error</span>');

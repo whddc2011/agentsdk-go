@@ -222,6 +222,13 @@ func (rt *Runtime) runLoop(prep preparedRun, mdl model.Model, hookAdapter *runti
 	if rt.opts.Skylark != nil && rt.opts.Skylark.Enabled && prep.skylarkProgressive {
 		systemPrompt = augmentSkylarkProgressiveSystemPrompt(systemPrompt, historyBefore, rt.opts.Skylark)
 	}
+	if rt.evolutionStore != nil {
+		snap := rt.evolutionStore.SnapshotForSession(prep.normalized.SessionID)
+		systemPrompt = augmentSystemPromptWithEvolution(systemPrompt, snap)
+	}
+	if rt.opts.ToolPromptSchema == ToolPromptSchemaMinimal {
+		systemPrompt = augmentSystemPromptToolSchemaMinimal(systemPrompt)
+	}
 
 	trimmer := rt.newTrimmer()
 
@@ -266,10 +273,14 @@ func (rt *Runtime) runLoop(prep preparedRun, mdl model.Model, hookAdapter *runti
 		}
 
 		var toolDefs []model.ToolDefinition
+		schemaMode := rt.opts.ToolPromptSchema
+		if schemaMode == "" {
+			schemaMode = ToolPromptSchemaFull
+		}
 		if rt.opts.Skylark != nil && rt.opts.Skylark.Enabled && prep.skylarkProgressive && tools != nil && tools.skylark != nil {
-			toolDefs = availableToolsSkylark(rt.registry, tools.skylark)
+			toolDefs = availableToolsSkylark(rt.registry, tools.skylark, schemaMode)
 		} else {
-			toolDefs = availableTools(rt.registry, prep.toolWhitelist)
+			toolDefs = availableTools(rt.registry, prep.toolWhitelist, schemaMode)
 		}
 
 		snapshot := prep.history.All()
@@ -296,6 +307,9 @@ func (rt *Runtime) runLoop(prep preparedRun, mdl model.Model, hookAdapter *runti
 			modelSpan = tracer.StartModelSpan(agentSpan, strings.TrimSpace(req.Model))
 		}
 		if err := mdl.CompleteStream(ctx, req, func(sr model.StreamResult) error {
+			if strings.TrimSpace(sr.Delta) != "" {
+				emitModelStreamDelta(ctx, state, sr.Delta)
+			}
 			if sr.Final && sr.Response != nil {
 				resp = sr.Response
 			}

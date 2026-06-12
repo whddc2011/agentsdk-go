@@ -441,12 +441,11 @@ func convertToolsToResponsesAPI(tools []ToolDefinition) []responses.ToolUnionPar
 			continue
 		}
 
-		tool := responses.ToolUnionParam{
-			OfFunction: &responses.FunctionToolParam{
-				Name:       name,
-				Parameters: convertToFunctionParameters(def.Parameters),
-			},
+		fn := &responses.FunctionToolParam{Name: name}
+		if HasSubstantialToolParameters(def.Parameters) {
+			fn.Parameters = convertToFunctionParameters(def.Parameters)
 		}
+		tool := responses.ToolUnionParam{OfFunction: fn}
 		if desc := strings.TrimSpace(def.Description); desc != "" {
 			tool.OfFunction.Description = openai.String(desc)
 		}
@@ -496,7 +495,7 @@ func convertResponsesAPIResponse(resp *responses.Response) *Response {
 	return &Response{
 		Message: Message{
 			Role:      "assistant",
-			Content:   content.String(),
+			Content:   NormalizeAssistantContent(content.String(), len(toolCalls) > 0),
 			ToolCalls: toolCalls,
 		},
 		Usage:      convertResponsesUsage(resp.Usage),

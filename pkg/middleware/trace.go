@@ -38,6 +38,7 @@ type traceSession struct {
 	jsonFile  *os.File
 	events    []TraceEvent
 	mu        sync.Mutex
+	htmlWG    sync.WaitGroup
 }
 
 // TraceContextKey identifies values stored in a context for trace middleware consumers.
@@ -246,7 +247,6 @@ func (sess *traceSession) append(evt TraceEvent, owner *TraceMiddleware) {
 		return
 	}
 	sess.mu.Lock()
-	defer sess.mu.Unlock()
 
 	sess.events = append(sess.events, evt)
 	if sess.jsonFile != nil {
@@ -258,9 +258,30 @@ func (sess *traceSession) append(evt TraceEvent, owner *TraceMiddleware) {
 	}
 
 	sess.updatedAt = owner.now()
-	if err := owner.renderHTML(sess); err != nil {
-		owner.logf("render html %s: %v", sess.htmlPath, err)
+	sess.mu.Unlock()
+	owner.scheduleHTMLRender(sess)
+}
+
+func (m *TraceMiddleware) scheduleHTMLRender(sess *traceSession) {
+	if m == nil || sess == nil {
+		return
 	}
+	sess.htmlWG.Add(1)
+	go func() {
+		defer sess.htmlWG.Done()
+		sess.mu.Lock()
+		defer sess.mu.Unlock()
+		if err := m.renderHTML(sess); err != nil {
+			m.logf("render html %s: %v", sess.htmlPath, err)
+		}
+	}()
+}
+
+func (m *TraceMiddleware) waitHTMLRender(sess *traceSession) {
+	if sess == nil {
+		return
+	}
+	sess.htmlWG.Wait()
 }
 
 func writeJSONLine(f *os.File, evt TraceEvent) error {

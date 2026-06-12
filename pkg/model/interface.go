@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"fmt"
 	"strings"
 )
 
@@ -38,6 +39,24 @@ type Message struct {
 	ReasoningContent string // For thinking models (e.g. DeepSeek, Kimi k2.5)
 }
 
+// PlaceholderAssistantContent is sent to some providers when an assistant turn
+// has no user-visible text (e.g. tool-only turns). It must not be shown to users.
+const PlaceholderAssistantContent = "."
+
+// IsPlaceholderAssistantContent reports whether content is the API placeholder
+// used for empty assistant text.
+func IsPlaceholderAssistantContent(content string) bool {
+	return strings.TrimSpace(content) == PlaceholderAssistantContent
+}
+
+// NormalizeAssistantContent strips placeholder-only text from tool-call turns.
+func NormalizeAssistantContent(content string, hasToolCalls bool) string {
+	if hasToolCalls && IsPlaceholderAssistantContent(content) {
+		return ""
+	}
+	return content
+}
+
 // TextContent returns the text portion of the message. When ContentBlocks
 // is populated it concatenates all text blocks; otherwise it falls back to
 // Content.
@@ -70,6 +89,27 @@ type ToolDefinition struct {
 	Name        string
 	Description string
 	Parameters  map[string]any
+}
+
+// HasSubstantialToolParameters reports whether params include property metadata beyond
+// a bare JSON Schema object shell (type: object with no properties).
+func HasSubstantialToolParameters(params map[string]any) bool {
+	if len(params) == 0 {
+		return false
+	}
+	props, ok := params["properties"]
+	if !ok {
+		if len(params) == 1 {
+			if t, ok := params["type"]; ok {
+				return strings.TrimSpace(fmt.Sprint(t)) != "object"
+			}
+		}
+		return len(params) > 0
+	}
+	if m, ok := props.(map[string]any); ok {
+		return len(m) > 0
+	}
+	return true
 }
 
 // Request drives a single model completion.

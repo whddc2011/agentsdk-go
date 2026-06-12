@@ -31,9 +31,16 @@ func TestAvailableToolsAndSchemaToMap(t *testing.T) {
 	if err := reg.Register(&helperStubTool{name: "Bash"}); err != nil {
 		t.Fatalf("register: %v", err)
 	}
-	defs := availableTools(reg, map[string]struct{}{"bash": {}})
+	defs := availableTools(reg, map[string]struct{}{"bash": {}}, ToolPromptSchemaFull)
 	if len(defs) != 1 || defs[0].Name != "Bash" {
 		t.Fatalf("unexpected tool defs %v", defs)
+	}
+	if defs[0].Parameters == nil {
+		t.Fatalf("expected full schema in full mode")
+	}
+	minimal := availableTools(reg, map[string]struct{}{"bash": {}}, ToolPromptSchemaMinimal)
+	if len(minimal) != 1 || minimal[0].Parameters != nil {
+		t.Fatalf("expected nil parameters in minimal mode, got %v", minimal[0].Parameters)
 	}
 	if schema := schemaToMap(&tool.JSONSchema{Type: "object", Properties: map[string]any{"a": "b"}}); schema["type"] != "object" {
 		t.Fatalf("unexpected schema map %v", schema)
@@ -67,7 +74,7 @@ func TestConvertMessages(t *testing.T) {
 	if clone := cloneArguments(modelMsgs[0].ToolCalls[0].Arguments); clone["a"] != "b" {
 		t.Fatalf("unexpected cloned args")
 	}
-	if def := availableTools(nil, nil); def != nil {
+	if def := availableTools(nil, nil, ToolPromptSchemaFull); def != nil {
 		t.Fatalf("expected nil defs")
 	}
 	if schema := schemaToMap(nil); schema != nil {

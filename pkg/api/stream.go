@@ -28,6 +28,8 @@ const (
 	EventToolExecutionOutput = "tool_execution_output"
 	EventToolExecutionResult = "tool_execution_result"
 	EventError               = "error"
+	// EventA2UI carries an A2UI v0.9 server-to-client message (createSurface, updateComponents, etc.).
+	EventA2UI = "a2ui"
 )
 
 // StreamEvent represents a single SSE dispatch compatible with Anthropic's schema
@@ -51,6 +53,9 @@ type StreamEvent struct {
 	SessionID string      `json:"session_id,omitempty"`       // SessionID ties events to a long-lived agent session.
 	Iteration *int        `json:"iteration,omitempty"`        // Iteration indicates the current agent iteration, if applicable.
 	TotalIter *int        `json:"total_iterations,omitempty"` // TotalIter reports the planned maximum iteration count.
+
+	// A2UI extension: raw A2UI server message JSON (v0.9).
+	A2UI json.RawMessage `json:"a2ui,omitempty"`
 }
 
 // Message represents the Anthropic message envelope streamed over SSE.

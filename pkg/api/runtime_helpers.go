@@ -17,16 +17,17 @@ import (
 	"github.com/stellarlinkco/agentsdk-go/pkg/runtime/subagents"
 	"github.com/stellarlinkco/agentsdk-go/pkg/sandbox"
 	"github.com/stellarlinkco/agentsdk-go/pkg/tool"
+	toolbuiltin "github.com/stellarlinkco/agentsdk-go/pkg/tool/builtin"
 )
 
-func availableTools(registry *tool.Registry, whitelist map[string]struct{}) []model.ToolDefinition {
+func availableTools(registry *tool.Registry, whitelist map[string]struct{}, schemaMode ToolPromptSchema) []model.ToolDefinition {
 	if registry == nil {
 		return nil
 	}
-	return availableToolsFromList(registry.List(), whitelist)
+	return availableToolsFromList(registry.List(), whitelist, schemaMode)
 }
 
-func availableToolsFromList(tools []tool.Tool, whitelist map[string]struct{}) []model.ToolDefinition {
+func availableToolsFromList(tools []tool.Tool, whitelist map[string]struct{}, schemaMode ToolPromptSchema) []model.ToolDefinition {
 	defs := make([]model.ToolDefinition, 0, len(tools))
 	for _, impl := range tools {
 		if impl == nil {
@@ -42,26 +43,37 @@ func availableToolsFromList(tools []tool.Tool, whitelist map[string]struct{}) []
 				continue
 			}
 		}
+		params := toolParametersForPrompt(name, impl.Schema(), schemaMode)
 		defs = append(defs, model.ToolDefinition{
 			Name:        name,
 			Description: strings.TrimSpace(impl.Description()),
-			Parameters:  schemaToMap(impl.Schema()),
+			Parameters:  params,
 		})
 	}
 	sort.Slice(defs, func(i, j int) bool { return defs[i].Name < defs[j].Name })
 	return defs
 }
 
+func toolParametersForPrompt(name string, schema *tool.JSONSchema, schemaMode ToolPromptSchema) map[string]any {
+	if schemaMode != ToolPromptSchemaMinimal {
+		return schemaToMap(schema)
+	}
+	if canonicalToolName(name) == canonicalToolName(toolbuiltin.DescribeToolName) {
+		return schemaToMap(schema)
+	}
+	return nil
+}
+
 // availableToolsSkylark exposes only tools allowed by progressive unlock state.
-func availableToolsSkylark(registry *tool.Registry, allow *skylarkAllowState) []model.ToolDefinition {
+func availableToolsSkylark(registry *tool.Registry, allow *skylarkAllowState, schemaMode ToolPromptSchema) []model.ToolDefinition {
 	if registry == nil || allow == nil {
 		return nil
 	}
 	allowed := allow.allowedMap()
-	return availableToolsFromListAllowSet(registry.List(), allowed)
+	return availableToolsFromListAllowSet(registry.List(), allowed, schemaMode)
 }
 
-func availableToolsFromListAllowSet(tools []tool.Tool, allowed map[string]struct{}) []model.ToolDefinition {
+func availableToolsFromListAllowSet(tools []tool.Tool, allowed map[string]struct{}, schemaMode ToolPromptSchema) []model.ToolDefinition {
 	if len(allowed) == 0 {
 		return nil
 	}
@@ -78,14 +90,26 @@ func availableToolsFromListAllowSet(tools []tool.Tool, allowed map[string]struct
 		if _, ok := allowed[canon]; !ok {
 			continue
 		}
+		params := toolParametersForPrompt(name, impl.Schema(), schemaMode)
 		defs = append(defs, model.ToolDefinition{
 			Name:        name,
 			Description: strings.TrimSpace(impl.Description()),
-			Parameters:  schemaToMap(impl.Schema()),
+			Parameters:  params,
 		})
 	}
 	sort.Slice(defs, func(i, j int) bool { return defs[i].Name < defs[j].Name })
 	return defs
+}
+
+func augmentSystemPromptToolSchemaMinimal(systemPrompt string) string {
+	hint := "## Tool parameters\n\n" +
+		"Tool parameter JSON schemas are omitted from the API tool list to save tokens. " +
+		"Before calling a tool you have not used in this session, call `describe_tool` with `tool_name` or `tool_names` " +
+		"to fetch the exact parameter schema, then invoke the tool with valid arguments."
+	if strings.TrimSpace(systemPrompt) == "" {
+		return hint
+	}
+	return strings.TrimSpace(systemPrompt) + "\n\n" + hint
 }
 
 func schemaToMap(schema *tool.JSONSchema) map[string]any {

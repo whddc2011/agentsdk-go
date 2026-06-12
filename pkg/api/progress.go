@@ -3,7 +3,9 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
+	"github.com/stellarlinkco/agentsdk-go/pkg/a2ui"
 	"github.com/stellarlinkco/agentsdk-go/pkg/middleware"
 	"github.com/stellarlinkco/agentsdk-go/pkg/model"
 	"github.com/stellarlinkco/agentsdk-go/pkg/tool"
@@ -12,6 +14,9 @@ import (
 // streamEmitFunc is stored on context so tools can push incremental output
 // without depending on middleware details.
 type streamEmitFunc func(context.Context, StreamEvent)
+
+const modelTextStreamedKey = "progress.model_text_streamed"
+const a2uiLineBufferKey = "a2ui.line_buffer"
 
 // newProgressMiddleware surfaces Anthropic-compatible SSE progress events at
 // each middleware interception point. The event ordering mirrors Anthropic's
@@ -56,10 +61,16 @@ func (p *progressMiddleware) AfterAgent(ctx context.Context, st *middleware.Stat
 	}
 
 	idx := 0
-	text := resp.Message.Content
-	p.textBlock(ctx, idx, text)
-	if text != "" {
+	text := model.NormalizeAssistantContent(resp.Message.Content, len(resp.Message.ToolCalls) > 0)
+	streamed, _ := st.Values[modelTextStreamedKey].(bool)
+	if streamed && text != "" {
+		p.emit(ctx, StreamEvent{Type: EventContentBlockStop, Index: &idx})
 		idx++
+	} else if !streamed {
+		p.textBlock(ctx, idx, text)
+		if text != "" {
+			idx++
+		}
 	}
 
 	for _, call := range resp.Message.ToolCalls {
@@ -130,6 +141,29 @@ func (p *progressMiddleware) AfterTool(ctx context.Context, st *middleware.State
 	}
 	p.emit(ctx, StreamEvent{Type: EventToolExecutionResult, ToolUseID: call.ID, Name: call.Name, Output: payload})
 	return nil
+}
+
+// emitModelStreamDelta forwards provider stream tokens to the progress channel when
+// CompleteStream delivers incremental deltas (true streaming to the UI).
+func emitModelStreamDelta(ctx context.Context, st *middleware.State, delta string) {
+	if strings.TrimSpace(delta) == "" || st == nil {
+		return
+	}
+	emit := streamEmitFromContext(ctx)
+	if emit == nil {
+		return
+	}
+	idx := 0
+	if _, ok := st.Values[modelTextStreamedKey]; !ok {
+		st.Values[modelTextStreamedKey] = true
+		emit(ctx, StreamEvent{Type: EventContentBlockStart, Index: &idx, ContentBlock: &ContentBlock{Type: "text"}})
+	}
+	emit(ctx, StreamEvent{Type: EventContentBlockDelta, Index: &idx, Delta: &Delta{Type: "text_delta", Text: delta}})
+	if st.Values != nil {
+		if buf, ok := st.Values[a2uiLineBufferKey].(*a2ui.LineBuffer); ok && buf != nil {
+			emitA2UIFromStreamDelta(ctx, emit, buf, delta)
+		}
+	}
 }
 
 func (p *progressMiddleware) textBlock(ctx context.Context, idx int, content string) {

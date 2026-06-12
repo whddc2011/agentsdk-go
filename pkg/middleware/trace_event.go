@@ -270,7 +270,7 @@ func snapshotModelRequest(req *model.Request) map[string]any {
 		payload["messages"] = sanitizePayload(req.Messages)
 	}
 	if len(req.Tools) > 0 {
-		payload["tools"] = sanitizePayload(req.Tools)
+		payload["tools"] = snapshotToolDefinitions(req.Tools)
 	}
 	if strings.TrimSpace(req.System) != "" {
 		payload["system"] = req.System
@@ -285,6 +285,31 @@ func snapshotModelRequest(req *model.Request) map[string]any {
 		payload["temperature"] = req.Temperature
 	}
 	return payload
+}
+
+func snapshotToolDefinitions(tools []model.ToolDefinition) []map[string]any {
+	if len(tools) == 0 {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(tools))
+	for _, def := range tools {
+		name := strings.TrimSpace(def.Name)
+		if name == "" {
+			continue
+		}
+		entry := map[string]any{"name": name}
+		if desc := strings.TrimSpace(def.Description); desc != "" {
+			entry["description"] = desc
+		}
+		if model.HasSubstantialToolParameters(def.Parameters) {
+			entry["parameters"] = sanitizePayload(def.Parameters)
+		}
+		out = append(out, entry)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func snapshotModelResponse(resp *model.Response) map[string]any {

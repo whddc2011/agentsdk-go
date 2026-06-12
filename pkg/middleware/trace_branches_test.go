@@ -116,6 +116,7 @@ func TestTraceMiddlewareBranches(t *testing.T) {
 			updatedAt: time.Unix(0, 0).UTC(),
 		}
 		sess.append(TraceEvent{Timestamp: time.Unix(1, 0).UTC(), Stage: "before_agent", SessionID: "s"}, tm)
+		tm.waitHTMLRender(sess)
 		if _, err := os.Stat(sess.htmlPath); err != nil {
 			t.Fatalf("expected html output: %v", err)
 		}

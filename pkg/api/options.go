@@ -21,6 +21,7 @@ import (
 	"github.com/stellarlinkco/agentsdk-go/pkg/runtime/subagents"
 	"github.com/stellarlinkco/agentsdk-go/pkg/sandbox"
 	"github.com/stellarlinkco/agentsdk-go/pkg/tool"
+	toolbuiltin "github.com/stellarlinkco/agentsdk-go/pkg/tool/builtin"
 )
 
 var (
@@ -79,6 +80,17 @@ type ModelFactory interface {
 }
 
 type ModelFactoryFunc func(context.Context) (model.Model, error)
+
+// ToolPromptSchema controls how much of each tool definition is sent to the model.
+type ToolPromptSchema string
+
+const (
+	// ToolPromptSchemaFull sends name, description, and full JSON parameters (default).
+	ToolPromptSchemaFull ToolPromptSchema = "full"
+	// ToolPromptSchemaMinimal sends only name and description; register describe_tool
+	// so the model can fetch full parameter schemas on demand.
+	ToolPromptSchemaMinimal ToolPromptSchema = "minimal"
+)
 
 func (fn ModelFactoryFunc) Model(ctx context.Context) (model.Model, error) {
 	if fn == nil {
@@ -141,7 +153,15 @@ type Options struct {
 	Skills    []SkillRegistration
 	Subagents []SubagentRegistration
 	// Skylark enables progressive retrieval (Bleve + optional embeddings); see docs/skylark.md.
-	Skylark     *SkylarkOptions
+	Skylark *SkylarkOptions
+	// Evolution enables L4 curated memory (MEMORY/USER/SOUL/PROMPT) and the memory tool.
+	Evolution *EvolutionOptions
+	// WebTools configures built-in web_search and web_fetch (enabled by default when nil).
+	WebTools *toolbuiltin.WebToolsConfig
+	// BrowserHandler injects Chromium automation for the browser tool. When nil, browser is not registered.
+	BrowserHandler toolbuiltin.BrowserHandler
+	// EnableA2UI registers a2ui_push / a2ui_reset tools and enables A2UI stream events.
+	EnableA2UI  *bool
 	Sandbox     SandboxOptions
 	AutoCompact CompactConfig
 	OTEL        OTELConfig
@@ -159,11 +179,14 @@ type Options struct {
 	// ToolOutputSnippetMaxRunes controls the snippet size kept in history when output
 	// is persisted. Default: 900.
 	ToolOutputSnippetMaxRunes int
-	fsLayer                   *config.FS
-	settingsSnapshot          *config.Settings
-	skReg                     *skills.Registry
-	subMgr                    *subagents.Manager
-	tracer                    Tracer
+	// ToolPromptSchema controls tool definitions in model requests. Minimal mode omits
+	// parameter schemas and registers describe_tool for lazy schema lookup.
+	ToolPromptSchema ToolPromptSchema
+	fsLayer          *config.FS
+	settingsSnapshot *config.Settings
+	skReg            *skills.Registry
+	subMgr           *subagents.Manager
+	tracer           Tracer
 }
 
 // SessionHistoryLoader loads messages for a session from application storage.
@@ -293,6 +316,23 @@ func (o Options) withDefaults() Options {
 		o.ToolOutputSnippetMaxRunes = 900
 	}
 
+	if o.Evolution != nil && o.Evolution.Enabled {
+		if strings.TrimSpace(o.Evolution.Dir) == "" {
+			o.Evolution.Dir = filepath.Join(o.ProjectRoot, ".agents", "evolution")
+		}
+		if o.Evolution.MemoryCharLimit <= 0 {
+			o.Evolution.MemoryCharLimit = 2200
+		}
+		if o.Evolution.UserCharLimit <= 0 {
+			o.Evolution.UserCharLimit = 1375
+		}
+		if o.Evolution.SoulCharLimit <= 0 {
+			o.Evolution.SoulCharLimit = 4000
+		}
+		if o.Evolution.PromptCharLimit <= 0 {
+			o.Evolution.PromptCharLimit = 2000
+		}
+	}
 	if o.Skylark != nil {
 		if o.Skylark.SimplePromptMaxRunes <= 0 {
 			o.Skylark.SimplePromptMaxRunes = 10
@@ -390,6 +430,10 @@ func (o Options) frozen() Options {
 			sk.EnableOneShotRouting = &v
 		}
 		o.Skylark = &sk
+	}
+	if o.Evolution != nil {
+		evo := *o.Evolution
+		o.Evolution = &evo
 	}
 
 	o.Sandbox = freezeSandboxOptions(o.Sandbox)

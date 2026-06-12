@@ -7,7 +7,7 @@ import "github.com/stellarlinkco/agentsdk-go/pkg/model"
 func EnabledBuiltinToolKeys(opts Options) []string {
 	resolved := opts.withDefaults()
 	entry := effectiveEntryPoint(resolved)
-	return filterBuiltinNames(resolved.EnabledBuiltinTools, builtinOrder(entry))
+	return filterBuiltinNames(resolved.EnabledBuiltinTools, builtinOrder(entry, resolved.BrowserHandler, resolved.WebTools))
 }
 
 // AvailableTools returns model-facing tool definitions from the runtime registry.
@@ -15,7 +15,11 @@ func (rt *Runtime) AvailableTools() []model.ToolDefinition {
 	if rt == nil {
 		return nil
 	}
-	return availableTools(rt.registry, nil)
+	schemaMode := rt.opts.ToolPromptSchema
+	if schemaMode == "" {
+		schemaMode = ToolPromptSchemaFull
+	}
+	return availableTools(rt.registry, nil, schemaMode)
 }
 
 // AvailableToolsForWhitelist returns model-facing tool definitions constrained by whitelist.
@@ -23,5 +27,9 @@ func (rt *Runtime) AvailableToolsForWhitelist(toolWhitelist []string) []model.To
 	if rt == nil {
 		return nil
 	}
-	return availableTools(rt.registry, toLowerSet(toolWhitelist))
+	schemaMode := rt.opts.ToolPromptSchema
+	if schemaMode == "" {
+		schemaMode = ToolPromptSchemaFull
+	}
+	return availableTools(rt.registry, toLowerSet(toolWhitelist), schemaMode)
 }

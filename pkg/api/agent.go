@@ -9,10 +9,12 @@ import (
 	"sync"
 
 	"github.com/stellarlinkco/agentsdk-go/pkg/config"
+	"github.com/stellarlinkco/agentsdk-go/pkg/evolution"
 	hooks "github.com/stellarlinkco/agentsdk-go/pkg/hooks"
 	"github.com/stellarlinkco/agentsdk-go/pkg/sandbox"
 	"github.com/stellarlinkco/agentsdk-go/pkg/skylark"
 	"github.com/stellarlinkco/agentsdk-go/pkg/tool"
+	toolbuiltin "github.com/stellarlinkco/agentsdk-go/pkg/tool/builtin"
 )
 
 var newTracer = NewTracer
@@ -53,6 +55,7 @@ type Runtime struct {
 	skylarkEngine   *skylark.Engine
 	skylarkAgentsMD string
 	skylarkRulesMD  string
+	evolutionStore  *evolution.Store
 
 	mu sync.RWMutex
 
@@ -117,9 +120,27 @@ func New(ctx context.Context, opts Options) (*Runtime, error) {
 	}
 	opts.subMgr = subMgr
 
+	var evolutionStore *evolution.Store
+	if opts.Evolution != nil && opts.Evolution.Enabled {
+		store, err := evolution.Open(evolutionConfigFrom(opts))
+		if err != nil {
+			log.Printf("evolution store warning: %v", err)
+		} else {
+			evolutionStore = store
+		}
+	}
+
 	registry := tool.NewRegistry()
 	if err := registerTools(registry, opts, settings, opts.skReg); err != nil {
 		return nil, err
+	}
+	if evolutionStore != nil {
+		if err := registry.Register(toolbuiltin.NewMemoryTool(evolutionStore)); err != nil {
+			log.Printf("memory tool register warning: %v", err)
+		}
+		if err := registry.Register(toolbuiltin.NewMemoryRecallTool(evolutionStore)); err != nil {
+			log.Printf("memory_recall tool register warning: %v", err)
+		}
 	}
 	mcpServers := collectMCPServers(settings, opts.MCPServers)
 	if err := registerMCPServers(ctx, registry, sbox, mcpServers); err != nil {
@@ -197,6 +218,7 @@ func New(ctx context.Context, opts Options) (*Runtime, error) {
 		skylarkEngine:   skylarkEng,
 		skylarkAgentsMD: agentsMD,
 		skylarkRulesMD:  rulesMD,
+		evolutionStore:  evolutionStore,
 	}
 	return rt, nil
 }
@@ -272,6 +294,7 @@ func (rt *Runtime) RunStream(ctx context.Context, req Request) (<-chan StreamEve
 		baseCtx = context.Background()
 	}
 	progressMW := newProgressMiddleware(progressChan)
+	a2uiMW := newA2UIStreamMiddleware(progressChan)
 	ctxWithEmit := withStreamEmit(baseCtx, progressMW.streamEmit())
 	go func() {
 		defer rt.endRun()
@@ -319,7 +342,7 @@ func (rt *Runtime) RunStream(ctx context.Context, req Request) (<-chan StreamEve
 			}
 		}()
 
-		result, runErr = rt.runAgentWithMiddleware(prep, progressMW)
+		result, runErr = rt.runAgentWithMiddleware(prep, progressMW, a2uiMW)
 		close(progressChan)
 		<-done
 

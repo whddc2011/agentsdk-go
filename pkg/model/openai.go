@@ -218,7 +218,7 @@ func (m *openaiModel) CompleteStream(ctx context.Context, req Request, cb Stream
 		resp := &Response{
 			Message: Message{
 				Role:             "assistant",
-				Content:          accumulatedContent.String(),
+				Content:          NormalizeAssistantContent(accumulatedContent.String(), len(toolCalls) > 0),
 				ToolCalls:        toolCalls,
 				ReasoningContent: accumulatedReasoning.String(),
 			},
@@ -519,12 +519,11 @@ func convertToolsToOpenAI(tools []ToolDefinition) []openai.ChatCompletionToolPar
 			continue
 		}
 
-		tool := openai.ChatCompletionToolParam{
-			Function: shared.FunctionDefinitionParam{
-				Name:       name,
-				Parameters: convertToFunctionParameters(def.Parameters),
-			},
+		fn := shared.FunctionDefinitionParam{Name: name}
+		if HasSubstantialToolParameters(def.Parameters) {
+			fn.Parameters = convertToFunctionParameters(def.Parameters)
 		}
+		tool := openai.ChatCompletionToolParam{Function: fn}
 		if desc := strings.TrimSpace(def.Description); desc != "" {
 			tool.Function.Description = openai.Opt(desc)
 		}
@@ -584,7 +583,7 @@ func convertOpenAIResponse(completion *openai.ChatCompletion) *Response {
 	return &Response{
 		Message: Message{
 			Role:             "assistant",
-			Content:          msg.Content,
+			Content:          NormalizeAssistantContent(msg.Content, len(toolCalls) > 0),
 			ToolCalls:        toolCalls,
 			ReasoningContent: reasoningContent,
 		},

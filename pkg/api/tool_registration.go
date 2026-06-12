@@ -26,8 +26,8 @@ func registerTools(registry *tool.Registry, opts Options, settings *config.Setti
 			skReg = skills.NewRegistry()
 		}
 
-		factories := builtinToolFactories(opts.ProjectRoot, sandboxDisabled, entry, settings, skReg)
-		names := builtinOrder(entry)
+		factories := builtinToolFactories(opts.ProjectRoot, sandboxDisabled, entry, settings, skReg, opts.WebTools, opts.BrowserHandler)
+		names := builtinOrder(entry, opts.BrowserHandler, opts.WebTools)
 		selectedNames := filterBuiltinNames(opts.EnabledBuiltinTools, names)
 		for _, name := range selectedNames {
 			ctor := factories[name]
@@ -43,6 +43,10 @@ func registerTools(registry *tool.Registry, opts Options, settings *config.Setti
 
 		if len(opts.CustomTools) > 0 {
 			tools = append(tools, opts.CustomTools...)
+		}
+	} else if a2uiEnabled(opts) {
+		for _, t := range toolbuiltin.A2UITools() {
+			tools = appendUniqueTool(tools, t)
 		}
 	}
 
@@ -87,10 +91,36 @@ func registerTools(registry *tool.Registry, opts Options, settings *config.Setti
 		}
 	}
 
+	if opts.ToolPromptSchema == ToolPromptSchemaMinimal {
+		if err := registry.Register(toolbuiltin.NewDescribeTool(registry)); err != nil {
+			return fmt.Errorf("api: register %s: %w", toolbuiltin.DescribeToolName, err)
+		}
+	}
+
 	return nil
 }
 
-func builtinToolFactories(root string, sandboxDisabled bool, entry EntryPoint, settings *config.Settings, skReg *skills.Registry) map[string]func() tool.Tool {
+func a2uiEnabled(opts Options) bool {
+	if opts.EnableA2UI == nil {
+		return true
+	}
+	return *opts.EnableA2UI
+}
+
+func appendUniqueTool(tools []tool.Tool, impl tool.Tool) []tool.Tool {
+	if impl == nil {
+		return tools
+	}
+	name := strings.ToLower(strings.TrimSpace(impl.Name()))
+	for _, existing := range tools {
+		if existing != nil && strings.ToLower(strings.TrimSpace(existing.Name())) == name {
+			return tools
+		}
+	}
+	return append(tools, impl)
+}
+
+func builtinToolFactories(root string, sandboxDisabled bool, entry EntryPoint, settings *config.Settings, skReg *skills.Registry, webCfg *toolbuiltin.WebToolsConfig, browserHandler toolbuiltin.BrowserHandler) map[string]func() tool.Tool {
 	factories := map[string]func() tool.Tool{}
 
 	bashCtor := func() tool.Tool {
@@ -163,13 +193,49 @@ func builtinToolFactories(root string, sandboxDisabled bool, entry EntryPoint, s
 	factories["grep"] = grepCtor
 	factories["glob"] = globCtor
 	factories["skill"] = func() tool.Tool { return toolbuiltin.NewSkillTool(skReg, nil) }
+	factories["a2ui_push"] = func() tool.Tool { return toolbuiltin.NewA2UIPushTool() }
+	factories["a2ui_reset"] = func() tool.Tool { return toolbuiltin.NewA2UIResetTool() }
+
+	if webCfg == nil {
+		webCfg = &toolbuiltin.WebToolsConfig{}
+	}
+	if webCfg.IsSearchEnabled() {
+		factories["web_search"] = func() tool.Tool { return toolbuiltin.NewWebSearchTool(webCfg) }
+	}
+	if webCfg.IsFetchEnabled() {
+		factories["web_fetch"] = func() tool.Tool { return toolbuiltin.NewWebFetchTool(webCfg, root) }
+	}
+	if browserHandler != nil {
+		factories["browser"] = func() tool.Tool { return toolbuiltin.NewBrowserTool(browserHandler) }
+	}
+	factories["current_time"] = func() tool.Tool { return toolbuiltin.CurrentTimeTool{} }
+	factories["get_os_info"] = func() tool.Tool { return toolbuiltin.OsInfoTool{} }
+	factories["probe_environment"] = func() tool.Tool { return toolbuiltin.EnvProbeTool{} }
 
 	return factories
 }
 
-func builtinOrder(entry EntryPoint) []string {
+func builtinOrder(entry EntryPoint, browserHandler toolbuiltin.BrowserHandler, webCfg *toolbuiltin.WebToolsConfig) []string {
 	_ = entry
-	return []string{"bash", "read", "write", "edit", "rollback_last_step", "glob", "grep", "skill"}
+	order := []string{
+		"bash",
+		"read", "write", "edit", "rollback_last_step",
+		"glob", "grep",
+	}
+	if webCfg == nil {
+		webCfg = &toolbuiltin.WebToolsConfig{}
+	}
+	if webCfg.IsSearchEnabled() {
+		order = append(order, "web_search")
+	}
+	if webCfg.IsFetchEnabled() {
+		order = append(order, "web_fetch")
+	}
+	if browserHandler != nil {
+		order = append(order, "browser")
+	}
+	order = append(order, "current_time", "get_os_info", "probe_environment", "skill", "a2ui_push", "a2ui_reset")
+	return order
 }
 
 func filterBuiltinNames(enabled []string, order []string) []string {

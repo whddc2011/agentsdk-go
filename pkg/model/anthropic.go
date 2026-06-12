@@ -649,7 +649,7 @@ func convertResponseMessage(msg anthropicsdk.Message) Message {
 	}
 	return Message{
 		Role:             role,
-		Content:          strings.Join(textParts, ""),
+		Content:          NormalizeAssistantContent(strings.Join(textParts, ""), len(toolCalls) > 0),
 		ToolCalls:        toolCalls,
 		ReasoningContent: strings.Join(thinkingParts, ""),
 	}
