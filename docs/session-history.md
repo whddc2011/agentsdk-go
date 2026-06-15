@@ -6,7 +6,7 @@
 
 SDK 在 `historyStore` 上长期支持 **首次 `Get(sessionID)` 时调用可选 `loader`**，此前未从 `api.Options` 暴露。现在通过 `Options.SessionHistoryLoader` 等字段，由应用在 `NewRuntime` 时接入自己的存储层。
 
-**说明**：Skylark 的 Bleve 索引 **不持久化用户聊天记录**；`retrieve_knowledge` 中的 `history` 只检索 **当前内存中的** `History`。跨进程续聊应依赖本节的 Loader（或你在请求路径上自行 `Append` / `Replace`）。
+**说明**：Knowledge 的 Bleve 索引 **不持久化用户聊天记录**；`session_search` 只检索 **当前内存中的** `History`。跨进程续聊应依赖本节的 Loader（或你在请求路径上自行 `Append` / `Replace`）。
 
 ## 行为摘要
 

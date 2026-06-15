@@ -152,8 +152,8 @@ type Options struct {
 
 	Skills    []SkillRegistration
 	Subagents []SubagentRegistration
-	// Skylark enables progressive retrieval (Bleve + optional embeddings); see docs/skylark.md.
-	Skylark *SkylarkOptions
+	// Knowledge enables Obsidian vault indexing and memory_search / session_search tools.
+	Knowledge *KnowledgeOptions
 	// Evolution enables L4 curated memory (MEMORY/USER/SOUL/PROMPT) and the memory tool.
 	Evolution *EvolutionOptions
 	// WebTools configures built-in web_search and web_fetch (enabled by default when nil).
@@ -333,27 +333,12 @@ func (o Options) withDefaults() Options {
 			o.Evolution.PromptCharLimit = 2000
 		}
 	}
-	if o.Skylark != nil {
-		if o.Skylark.SimplePromptMaxRunes <= 0 {
-			o.Skylark.SimplePromptMaxRunes = 10
+	if o.Knowledge != nil && o.Knowledge.Enabled {
+		if strings.TrimSpace(o.Knowledge.IndexDir) == "" {
+			o.Knowledge.IndexDir = filepath.Join(o.ProjectRoot, ".agents", "knowledge-index")
 		}
-		if o.Skylark.ProgressiveMiniMemoryMaxRunes <= 0 {
-			o.Skylark.ProgressiveMiniMemoryMaxRunes = 400
-		}
-		if o.Skylark.HistoryPrefetchMaxHits <= 0 {
-			o.Skylark.HistoryPrefetchMaxHits = 4
-		}
-		if o.Skylark.HistoryPrefetchMaxRunes <= 0 {
-			o.Skylark.HistoryPrefetchMaxRunes = 900
-		}
-		if len(o.Skylark.HistoryPrefetchHints) == 0 {
-			o.Skylark.HistoryPrefetchHints = []string{
-				"上次", "之前", "刚才", "继续", "再问", "你刚说", "你说过",
-				"previous", "earlier", "last time", "again", "as before", "continue",
-			}
-		}
-		if strings.TrimSpace(o.Skylark.ProjectMemoryDir) == "" {
-			o.Skylark.ProjectMemoryDir = filepath.Join(o.ProjectRoot, ".agents", "memory")
+		if strings.TrimSpace(o.Knowledge.VaultDir) == "" {
+			o.Knowledge.VaultDir = filepath.Join(o.ProjectRoot, "vault")
 		}
 	}
 	return o
@@ -423,13 +408,9 @@ func (o Options) frozen() Options {
 		}
 		o.Subagents = subCopy
 	}
-	if o.Skylark != nil {
-		sk := *o.Skylark
-		if o.Skylark.EnableOneShotRouting != nil {
-			v := *o.Skylark.EnableOneShotRouting
-			sk.EnableOneShotRouting = &v
-		}
-		o.Skylark = &sk
+	if o.Knowledge != nil {
+		k := *o.Knowledge
+		o.Knowledge = &k
 	}
 	if o.Evolution != nil {
 		evo := *o.Evolution

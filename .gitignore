@@ -36,6 +36,8 @@ examples/http/http
 **/.agents/skylark/index_meta.json
 **/.agents/skylark/store/
 **/.agents/skylark/corpus.json
+**/knowledge-index/
+**/.agents/knowledge-index/
 **/.http-trace/
 
 tools.json

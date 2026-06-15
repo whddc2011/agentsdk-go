@@ -14,6 +14,7 @@ import (
 	"github.com/stellarlinkco/agentsdk-go/pkg/runtime/skills"
 	"github.com/stellarlinkco/agentsdk-go/pkg/sandbox"
 	"github.com/stellarlinkco/agentsdk-go/pkg/tool"
+	toolbuiltin "github.com/stellarlinkco/agentsdk-go/pkg/tool/builtin"
 )
 
 type namedTool struct{ name string }
@@ -23,6 +24,18 @@ func (n *namedTool) Description() string      { return "named" }
 func (n *namedTool) Schema() *tool.JSONSchema { return &tool.JSONSchema{Type: "object"} }
 func (n *namedTool) Execute(ctx context.Context, params map[string]interface{}) (*tool.ToolResult, error) {
 	return &tool.ToolResult{Output: n.name}, nil
+}
+
+func registerToolsTestOpts(root string) Options {
+	off := false
+	return Options{
+		ProjectRoot: root,
+		EnableA2UI:  &off,
+		WebTools: &toolbuiltin.WebToolsConfig{
+			SearchEnabled: &off,
+			FetchEnabled:  &off,
+		},
+	}
 }
 
 func TestApplyPromptMetadata(t *testing.T) {
@@ -189,7 +202,8 @@ func TestProjectConfigFromSettings(t *testing.T) {
 
 func TestRegisterToolsUsesDefaultImplementations(t *testing.T) {
 	registry := tool.NewRegistry()
-	opts := Options{ProjectRoot: t.TempDir()}
+	opts := registerToolsTestOpts(t.TempDir())
+	opts.EnabledBuiltinTools = []string{"bash", "read", "write", "edit", "rollback_last_step", "glob", "grep", "skill"}
 	if err := registerTools(registry, opts, nil, nil); err != nil {
 		t.Fatalf("register tools: %v", err)
 	}
@@ -215,7 +229,8 @@ func TestRegisterToolsUsesDefaultImplementations(t *testing.T) {
 func TestRegisterToolsRespectsEnabledWhitelist(t *testing.T) {
 	registry := tool.NewRegistry()
 	root := t.TempDir()
-	opts := Options{ProjectRoot: root, EnabledBuiltinTools: []string{"bash", "grep"}}
+	opts := registerToolsTestOpts(root)
+	opts.EnabledBuiltinTools = []string{"bash", "grep"}
 	if err := registerTools(registry, opts, nil, nil); err != nil {
 		t.Fatalf("register tools: %v", err)
 	}
@@ -298,7 +313,9 @@ func TestRegisterToolsIgnoresUnknownWhitelistEntries(t *testing.T) {
 func TestRegisterToolsAppendsCustomTools(t *testing.T) {
 	registry := tool.NewRegistry()
 	custom := &namedTool{name: "custom"}
-	opts := Options{ProjectRoot: t.TempDir(), EnabledBuiltinTools: []string{}, CustomTools: []tool.Tool{nil, custom}}
+	opts := registerToolsTestOpts(t.TempDir())
+	opts.EnabledBuiltinTools = []string{}
+	opts.CustomTools = []tool.Tool{nil, custom}
 	if err := registerTools(registry, opts, nil, nil); err != nil {
 		t.Fatalf("register tools: %v", err)
 	}
@@ -311,12 +328,10 @@ func TestRegisterToolsAppendsCustomTools(t *testing.T) {
 func TestRegisterToolsLegacyToolsOverride(t *testing.T) {
 	registry := tool.NewRegistry()
 	legacy := &namedTool{name: "legacy"}
-	opts := Options{
-		ProjectRoot:         t.TempDir(),
-		Tools:               []tool.Tool{legacy},
-		EnabledBuiltinTools: []string{"bash"},
-		CustomTools:         []tool.Tool{&namedTool{name: "custom"}},
-	}
+	opts := registerToolsTestOpts(t.TempDir())
+	opts.Tools = []tool.Tool{legacy}
+	opts.EnabledBuiltinTools = []string{"bash"}
+	opts.CustomTools = []tool.Tool{&namedTool{name: "custom"}}
 	if err := registerTools(registry, opts, nil, nil); err != nil {
 		t.Fatalf("register tools: %v", err)
 	}
@@ -328,7 +343,8 @@ func TestRegisterToolsLegacyToolsOverride(t *testing.T) {
 
 func TestRegisterToolsSkipsNilEntries(t *testing.T) {
 	registry := tool.NewRegistry()
-	opts := Options{ProjectRoot: t.TempDir(), Tools: []tool.Tool{nil, &namedTool{name: "echo"}}}
+	opts := registerToolsTestOpts(t.TempDir())
+	opts.Tools = []tool.Tool{nil, &namedTool{name: "echo"}}
 	if err := registerTools(registry, opts, nil, nil); err != nil {
 		t.Fatalf("register tools: %v", err)
 	}

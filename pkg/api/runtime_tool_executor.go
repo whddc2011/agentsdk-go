@@ -26,7 +26,6 @@ type runtimeToolExecutor struct {
 	hooks     *runtimeHookAdapter
 	history   *message.History
 	allow     map[string]struct{}
-	skylark   *skylarkAllowState
 	root      string
 	host      string
 	sessionID string
@@ -45,18 +44,6 @@ func (t *runtimeToolExecutor) isAllowed(ctx context.Context, name string) bool {
 	canon := canonicalToolName(name)
 	if canon == "" {
 		return false
-	}
-	if t.skylark != nil {
-		if !t.skylark.isAllowed(name) {
-			return false
-		}
-		subCtx, ok := subagents.FromContext(ctx)
-		if !ok || len(subCtx.ToolWhitelist) == 0 {
-			return true
-		}
-		subSet := toLowerSet(subCtx.ToolWhitelist)
-		_, subAllowed := subSet[canon]
-		return subAllowed
 	}
 	reqAllowed := len(t.allow) == 0
 	if len(t.allow) > 0 {

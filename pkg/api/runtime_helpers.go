@@ -64,15 +64,6 @@ func toolParametersForPrompt(name string, schema *tool.JSONSchema, schemaMode To
 	return nil
 }
 
-// availableToolsSkylark exposes only tools allowed by progressive unlock state.
-func availableToolsSkylark(registry *tool.Registry, allow *skylarkAllowState, schemaMode ToolPromptSchema) []model.ToolDefinition {
-	if registry == nil || allow == nil {
-		return nil
-	}
-	allowed := allow.allowedMap()
-	return availableToolsFromListAllowSet(registry.List(), allowed, schemaMode)
-}
-
 func availableToolsFromListAllowSet(tools []tool.Tool, allowed map[string]struct{}, schemaMode ToolPromptSchema) []model.ToolDefinition {
 	if len(allowed) == 0 {
 		return nil

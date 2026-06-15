@@ -147,7 +147,7 @@ func adviceFor(err error) string {
 	msg := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(msg, "not whitelisted"):
-		return "工具未在白名单：在 ToolWhitelist 中加入该工具，或在 Skylark 模式下先 retrieve_capabilities 并 unlock。"
+		return "工具未在白名单：在 ToolWhitelist 中加入该工具。"
 	case strings.Contains(msg, "validation"):
 		return "参数校验失败：检查 schema required 字段与参数类型。"
 	case strings.Contains(msg, "blocked"):

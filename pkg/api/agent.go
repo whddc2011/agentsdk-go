@@ -52,9 +52,7 @@ type Runtime struct {
 	hooks           *hooks.Executor
 	histories       *historyStore
 	compactor       *compactor
-	skylarkEngine   *skylark.Engine
-	skylarkAgentsMD string
-	skylarkRulesMD  string
+	knowledgeEngine *skylark.Engine
 	evolutionStore  *evolution.Store
 
 	mu sync.RWMutex
@@ -80,12 +78,11 @@ func New(ctx context.Context, opts Options) (*Runtime, error) {
 	}
 
 	var agentsMD string
-	skylarkOn := opts.Skylark != nil && opts.Skylark.Enabled
 	if memory, err := config.LoadAgentsMD(opts.ProjectRoot, fsLayer); err != nil {
 		log.Printf("agents.md loader warning: %v", err)
 	} else {
 		agentsMD = strings.TrimSpace(memory)
-		if agentsMD != "" && !skylarkOn {
+		if agentsMD != "" {
 			if strings.TrimSpace(opts.SystemPrompt) == "" {
 				opts.SystemPrompt = fmt.Sprintf("## Memory\n\n%s", agentsMD)
 			} else {
@@ -154,7 +151,7 @@ func New(ctx context.Context, opts Options) (*Runtime, error) {
 			log.Printf("rules loader warning: %v", err)
 		} else {
 			rulesMD = strings.TrimSpace(loader.GetContent())
-			if rulesMD != "" && !skylarkOn {
+			if rulesMD != "" {
 				if strings.TrimSpace(opts.SystemPrompt) == "" {
 					opts.SystemPrompt = fmt.Sprintf("## Project Rules\n\n%s", rulesMD)
 				} else {
@@ -167,17 +164,18 @@ func New(ctx context.Context, opts Options) (*Runtime, error) {
 		}
 	}
 
-	var skylarkEng *skylark.Engine
-	if skylarkOn {
+	var knowledgeEng *skylark.Engine
+	if opts.Knowledge != nil && opts.Knowledge.Enabled {
 		var err error
-		skylarkEng, err = buildSkylarkEngine(ctx, opts, settings, agentsMD, rulesMD, registry)
+		knowledgeEng, err = buildKnowledgeEngine(ctx, opts)
 		if err != nil {
 			return nil, err
 		}
-		if strings.TrimSpace(opts.SystemPrompt) == "" {
-			opts.SystemPrompt = skylarkSystemPromptAppend()
-		} else {
-			opts.SystemPrompt = strings.TrimSpace(opts.SystemPrompt) + "\n\n" + skylarkSystemPromptAppend()
+		if err := registerKnowledgeTools(registry, knowledgeEng, opts, settings); err != nil {
+			if knowledgeEng != nil {
+				_ = knowledgeEng.Close()
+			}
+			return nil, err
 		}
 	}
 
@@ -215,9 +213,7 @@ func New(ctx context.Context, opts Options) (*Runtime, error) {
 		hooks:           hooks,
 		histories:       histories,
 		compactor:       compactor,
-		skylarkEngine:   skylarkEng,
-		skylarkAgentsMD: agentsMD,
-		skylarkRulesMD:  rulesMD,
+		knowledgeEngine: knowledgeEng,
 		evolutionStore:  evolutionStore,
 	}
 	return rt, nil
@@ -260,10 +256,8 @@ func (rt *Runtime) Run(ctx context.Context, req Request) (*Response, error) {
 	}
 	result, err := rt.runAgent(prep)
 	if err != nil {
-		_ = maybePersistProjectMemory(ctx, rt.opts, req.SessionID, prep.normalized.RequestID, prep.history.All(), "run_error", err)
 		return nil, err
 	}
-	_ = maybePersistProjectMemory(ctx, rt.opts, req.SessionID, prep.normalized.RequestID, prep.history.All(), "run_success", nil)
 	return rt.buildResponse(prep, result), nil
 }
 
@@ -326,8 +320,6 @@ func (rt *Runtime) RunStream(ctx context.Context, req Request) (<-chan StreamEve
 		var runErr error
 		var result runResult
 		defer func() {
-			// Best-effort: persist project memory conclusion on successful runs when enabled.
-			_ = maybePersistProjectMemory(ctxWithEmit, rt.opts, req.SessionID, prep.normalized.RequestID, prep.history.All(), "session_end", runErr)
 			if rt.hooks != nil {
 				reason := "completed"
 				if runErr != nil {
@@ -382,9 +374,9 @@ func (rt *Runtime) Close() error {
 		if rt.registry != nil {
 			rt.registry.Close()
 		}
-		if rt.skylarkEngine != nil {
-			if e := rt.skylarkEngine.Close(); e != nil {
-				log.Printf("api: skylark engine close: %v", e)
+		if rt.knowledgeEngine != nil {
+			if e := rt.knowledgeEngine.Close(); e != nil {
+				log.Printf("api: knowledge engine close: %v", e)
 			}
 		}
 		if rt.opts.tracer != nil {

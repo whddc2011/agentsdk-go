@@ -29,8 +29,6 @@ type preparedRun struct {
 	subagentResult *subagents.Result
 	mode           ModeContext
 	toolWhitelist  map[string]struct{}
-	// skylarkProgressive is false when Skylark one-shot routing uses full tools + memory re-injection.
-	skylarkProgressive bool
 }
 
 type runResult struct {
@@ -59,25 +57,14 @@ func (rt *Runtime) prepare(ctx context.Context, req Request) (preparedRun, error
 
 	activation := normalized.activationContext(prompt)
 
-	skylarkProgressive := false
-	if rt.opts.Skylark != nil && rt.opts.Skylark.Enabled {
-		skylarkProgressive = true
-		if isSkylarkSimplePrompt(prompt, rt.opts.Skylark) {
-			skylarkProgressive = false
-		}
-	}
-
 	var skillRes []SkillExecution
 	var err error
-	skipAutoSkills := skylarkProgressive && rt.opts.Skylark != nil && rt.opts.Skylark.Enabled && !rt.opts.Skylark.KeepAutoSkills
-	if !skipAutoSkills {
-		var afterSkills string
-		skillRes, afterSkills, err = rt.executeSkills(ctx, prompt, activation, &normalized)
-		if err != nil {
-			return preparedRun{}, err
-		}
-		prompt = afterSkills
+	var afterSkills string
+	skillRes, afterSkills, err = rt.executeSkills(ctx, prompt, activation, &normalized)
+	if err != nil {
+		return preparedRun{}, err
 	}
+	prompt = afterSkills
 	activation.Prompt = prompt
 	subRes, promptAfterSubagent, err := rt.executeSubagent(ctx, prompt, activation, &normalized)
 	if err != nil {
@@ -87,17 +74,16 @@ func (rt *Runtime) prepare(ctx context.Context, req Request) (preparedRun, error
 	activation.Prompt = prompt
 	whitelist := combineToolWhitelists(normalized.ToolWhitelist, nil)
 	return preparedRun{
-		ctx:                ctx,
-		prompt:             prompt,
-		contentBlocks:      normalized.ContentBlocks,
-		history:            history,
-		normalized:         normalized,
-		recorder:           recorder,
-		skillResults:       skillRes,
-		subagentResult:     subRes,
-		mode:               normalized.Mode,
-		toolWhitelist:      whitelist,
-		skylarkProgressive: skylarkProgressive,
+		ctx:            ctx,
+		prompt:         prompt,
+		contentBlocks:  normalized.ContentBlocks,
+		history:        history,
+		normalized:     normalized,
+		recorder:       recorder,
+		skillResults:   skillRes,
+		subagentResult: subRes,
+		mode:           normalized.Mode,
+		toolWhitelist:  whitelist,
 	}, nil
 }
 
@@ -132,9 +118,6 @@ func (rt *Runtime) runAgentWithMiddleware(prep preparedRun, extras ...middleware
 		sessionID:             prep.normalized.SessionID,
 		outputInlineMaxRunes:  rt.opts.ToolOutputInlineMaxRunes,
 		outputSnippetMaxRunes: rt.opts.ToolOutputSnippetMaxRunes,
-	}
-	if rt.opts.Skylark != nil && rt.opts.Skylark.Enabled && prep.skylarkProgressive {
-		toolExec.skylark = newSkylarkAllowState(prep.toolWhitelist)
 	}
 
 	chainItems := make([]middleware.Middleware, 0, len(rt.opts.Middleware)+len(extras))
@@ -172,20 +155,10 @@ func (rt *Runtime) runLoop(prep preparedRun, mdl model.Model, hookAdapter *runti
 		ctx = context.Background()
 	}
 
-	historyBefore := prep.history.All()
-
 	if strings.TrimSpace(prep.prompt) != "" || len(prep.contentBlocks) > 0 {
 		userMsg := message.Message{Role: "user", Content: strings.TrimSpace(prep.prompt)}
 		if len(prep.contentBlocks) > 0 {
 			userMsg.ContentBlocks = convertAPIContentBlocks(prep.contentBlocks)
-		}
-
-		// In progressive Skylark mode, auto-inject a small amount of relevant history
-		// for follow-up prompts so the model doesn't need to remember to call retrieval.
-		if rt.opts.Skylark != nil && rt.opts.Skylark.Enabled && prep.skylarkProgressive {
-			if injection := buildSkylarkHistoryPrefetchInjection(userMsg.Content, historyBefore, rt.opts.Skylark); strings.TrimSpace(injection) != "" {
-				userMsg.Content = strings.TrimSpace(combinePrompt(userMsg.Content, injection))
-			}
 		}
 		prep.history.Append(userMsg)
 	}
@@ -206,22 +179,14 @@ func (rt *Runtime) runLoop(prep preparedRun, mdl model.Model, hookAdapter *runti
 
 	ctx = context.WithValue(ctx, model.MiddlewareStateKey, state)
 
-	if rt.opts.Skylark != nil && rt.opts.Skylark.Enabled {
-		bundle := &skylarkRunBundle{History: prep.history}
-		if prep.skylarkProgressive && tools != nil && tools.skylark != nil {
-			bundle.Allow = tools.skylark
-		}
-		applySkylarkBundleDefaults(bundle, rt.opts.Skylark)
-		ctx = withSkylarkRun(ctx, bundle)
+	if rt.opts.Knowledge != nil && rt.opts.Knowledge.Enabled {
+		ctx = withKnowledgeRun(ctx, &knowledgeRunBundle{
+			History:            prep.history,
+			DefaultSearchLimit: defaultKnowledgeSearchLimit,
+		})
 	}
 
 	systemPrompt := rt.opts.SystemPrompt
-	if rt.opts.Skylark != nil && rt.opts.Skylark.Enabled && !prep.skylarkProgressive {
-		systemPrompt = augmentSkylarkOneShotSystemPrompt(systemPrompt, rt.skylarkAgentsMD, rt.skylarkRulesMD)
-	}
-	if rt.opts.Skylark != nil && rt.opts.Skylark.Enabled && prep.skylarkProgressive {
-		systemPrompt = augmentSkylarkProgressiveSystemPrompt(systemPrompt, historyBefore, rt.opts.Skylark)
-	}
 	if rt.evolutionStore != nil {
 		snap := rt.evolutionStore.SnapshotForSession(prep.normalized.SessionID)
 		systemPrompt = augmentSystemPromptWithEvolution(systemPrompt, snap)
@@ -277,11 +242,7 @@ func (rt *Runtime) runLoop(prep preparedRun, mdl model.Model, hookAdapter *runti
 		if schemaMode == "" {
 			schemaMode = ToolPromptSchemaFull
 		}
-		if rt.opts.Skylark != nil && rt.opts.Skylark.Enabled && prep.skylarkProgressive && tools != nil && tools.skylark != nil {
-			toolDefs = availableToolsSkylark(rt.registry, tools.skylark, schemaMode)
-		} else {
-			toolDefs = availableTools(rt.registry, prep.toolWhitelist, schemaMode)
-		}
+		toolDefs = availableTools(rt.registry, prep.toolWhitelist, schemaMode)
 
 		snapshot := prep.history.All()
 		if trimmer != nil {
