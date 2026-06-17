@@ -178,6 +178,9 @@ func ParseMessages(raw any) ([]*ServerMessage, error) {
 		}
 		return out, nil
 	case map[string]any:
+		if items, ok := unwrapItemArray(v); ok {
+			return ParseMessages(items)
+		}
 		if hasA2UIActionKey(v) {
 			return messagesFromActionMap(v)
 		}
@@ -193,4 +196,17 @@ func ParseMessages(raw any) ([]*ServerMessage, error) {
 		}
 		return ParseMessages(string(b))
 	}
+}
+
+// unwrapItemArray detects protobuf/JSON wrappers that encode arrays as {"item":[...]}.
+func unwrapItemArray(v map[string]any) ([]any, bool) {
+	items, ok := v["item"]
+	if !ok || items == nil {
+		return nil, false
+	}
+	arr, ok := items.([]any)
+	if !ok || len(v) != 1 {
+		return nil, false
+	}
+	return arr, true
 }

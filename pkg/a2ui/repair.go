@@ -200,16 +200,9 @@ func wrapTrailingButtonsInRow(components []map[string]any) []map[string]any {
 	if root == nil {
 		return components
 	}
-	childRaw, ok := root["children"].([]any)
+	childRaw, ok := anySliceFromRaw(root["children"])
 	if !ok {
-		if childStr, ok := root["children"].([]string); ok {
-			childRaw = make([]any, len(childStr))
-			for i, id := range childStr {
-				childRaw[i] = id
-			}
-		} else {
-			return components
-		}
+		return components
 	}
 	childIDs := make([]string, 0, len(childRaw))
 	for _, item := range childRaw {
@@ -370,7 +363,7 @@ func flattenInlineComponents(components []map[string]any) []map[string]any {
 			return
 		}
 
-		if rawChildren, ok := normalized["children"].([]any); ok {
+		if rawChildren, ok := anySliceFromRaw(normalized["children"]); ok {
 			childIDs := make([]any, 0, len(rawChildren))
 			for _, item := range rawChildren {
 				if childID, ok := item.(string); ok && childID != "" {
@@ -537,24 +530,42 @@ func placeholderComponents(id string) []map[string]any {
 }
 
 func addReferencedIDs(referenced map[string]bool, raw any) {
+	if items, ok := anySliceFromRaw(raw); ok {
+		for _, item := range items {
+			if id, ok := item.(string); ok && id != "" {
+				referenced[id] = true
+			}
+		}
+		return
+	}
 	switch v := raw.(type) {
 	case string:
 		if v != "" {
 			referenced[v] = true
 		}
+	}
+}
+
+// anySliceFromRaw accepts []any, []string, or {"item":[...]} array wrappers from some tool serializers.
+func anySliceFromRaw(raw any) ([]any, bool) {
+	if raw == nil {
+		return nil, false
+	}
+	switch v := raw.(type) {
 	case []any:
-		for _, item := range v {
-			if id, ok := item.(string); ok && id != "" {
-				referenced[id] = true
-			}
-		}
+		return v, true
 	case []string:
-		for _, id := range v {
-			if id != "" {
-				referenced[id] = true
-			}
+		out := make([]any, len(v))
+		for i, s := range v {
+			out[i] = s
+		}
+		return out, true
+	case map[string]any:
+		if items, ok := v["item"].([]any); ok {
+			return items, true
 		}
 	}
+	return nil, false
 }
 
 func topLevelComponentIDs(components []map[string]any, referenced map[string]bool) []string {

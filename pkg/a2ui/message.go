@@ -56,6 +56,16 @@ func (uc *UpdateComponents) UnmarshalJSON(data []byte) error {
 	if len(aux.Components) == 0 || string(aux.Components) == "null" {
 		return nil
 	}
+	var itemWrapper struct {
+		Item json.RawMessage `json:"item"`
+	}
+	if err := json.Unmarshal(aux.Components, &itemWrapper); err == nil && len(itemWrapper.Item) > 0 {
+		var arr []map[string]any
+		if err := json.Unmarshal(itemWrapper.Item, &arr); err == nil {
+			uc.Components = arr
+			return nil
+		}
+	}
 	var arr []map[string]any
 	if err := json.Unmarshal(aux.Components, &arr); err == nil {
 		uc.Components = arr

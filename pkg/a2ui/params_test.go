@@ -91,6 +91,54 @@ func TestExtractMessagesFromToolParams_empty(t *testing.T) {
 	}
 }
 
+func TestExtractMessagesFromToolParams_messagesItemWrapper(t *testing.T) {
+	params := map[string]any{
+		"messages": map[string]any{
+			"item": []any{
+				map[string]any{"createSurface": map[string]any{"surfaceId": "main", "catalogId": "basic"}},
+				map[string]any{
+					"updateComponents": map[string]any{
+						"surfaceId": "main",
+						"components": map[string]any{
+							"item": []any{
+								map[string]any{
+									"id":        "root",
+									"component": "Column",
+									"children": map[string]any{
+										"item": []any{"title"},
+									},
+								},
+								map[string]any{"id": "title", "component": "Text", "text": "Hello"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	msgs, err := ExtractMessagesFromToolParams(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) < 2 {
+		t.Fatalf("got %d messages, want at least 2", len(msgs))
+	}
+	if msgs[0].Kind() != "createSurface" {
+		t.Fatalf("first kind=%q", msgs[0].Kind())
+	}
+	if msgs[1].Kind() != "updateComponents" {
+		t.Fatalf("second kind=%q", msgs[1].Kind())
+	}
+	if len(msgs[1].UpdateComponents.Components) != 2 {
+		t.Fatalf("components=%d", len(msgs[1].UpdateComponents.Components))
+	}
+	root := msgs[1].UpdateComponents.Components[0]
+	children, ok := anySliceFromRaw(root["children"])
+	if !ok || len(children) != 1 {
+		t.Fatalf("root children=%#v", root["children"])
+	}
+}
+
 func TestIsLikelyA2UIMessage(t *testing.T) {
 	if !IsLikelyA2UIMessage([]byte(`{"createSurface":{"surfaceId":"main"}}`)) {
 		t.Fatal("expected true")
