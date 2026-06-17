@@ -4,6 +4,7 @@ package toolbuiltin
 
 import (
 	"context"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,7 +25,7 @@ func newBashExecCmd(ctx context.Context, command string) *exec.Cmd {
 	// DETACHED_PROCESS (0x00000008) — 脱离父进程控制台
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow:    true,
-		CreationFlags: 0x08000000 | 0x20000000 | 0x00000008, 
+		CreationFlags: 0x08000000 | 0x20000000 | 0x00000008,
 	}
 	return cmd
 }
@@ -53,6 +54,7 @@ func resolveWindowsShell(command string) (exe string, argv []string) {
 			comspec = "cmd.exe"
 		}
 	}
+	log.Println("ComSpec:", comspec)
 	return comspec, []string{"/d", "/s", "/c", command}
 }
 
