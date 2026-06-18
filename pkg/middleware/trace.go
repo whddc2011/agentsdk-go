@@ -20,25 +20,29 @@ import (
 // TraceMiddleware records middleware activity per session and renders a
 // lightweight HTML viewer alongside JSONL logs.
 type TraceMiddleware struct {
-	outputDir   string
-	sessions    map[string]*traceSession
-	tmpl        *template.Template
-	mu          sync.Mutex
-	clock       func() time.Time
-	traceSkills bool
+	outputDir    string
+	sessions     map[string]*traceSession
+	tmpl         *template.Template
+	mu           sync.Mutex
+	clock        func() time.Time
+	traceSkills  bool
+	htmlRender   bool
+	htmlDebounce time.Duration
 }
 
 type traceSession struct {
-	id        string
-	createdAt time.Time
-	updatedAt time.Time
-	timestamp string
-	jsonPath  string
-	htmlPath  string
-	jsonFile  *os.File
-	events    []TraceEvent
-	mu        sync.Mutex
-	htmlWG    sync.WaitGroup
+	id          string
+	createdAt   time.Time
+	updatedAt   time.Time
+	timestamp   string
+	jsonPath    string
+	htmlPath    string
+	jsonFile    *os.File
+	events      []TraceEvent
+	mu          sync.Mutex
+	htmlWG      sync.WaitGroup
+	htmlTimer   *time.Timer
+	htmlPending bool
 }
 
 // TraceContextKey identifies values stored in a context for trace middleware consumers.
@@ -66,6 +70,25 @@ func WithSkillTracing(enabled bool) TraceOption {
 	}
 }
 
+// WithHTMLRender controls whether JSONL events also trigger HTML viewer regeneration.
+// When false, only JSONL is written (lower overhead during active sessions).
+func WithHTMLRender(enabled bool) TraceOption {
+	return func(tm *TraceMiddleware) {
+		tm.htmlRender = enabled
+	}
+}
+
+// WithHTMLDebounce sets the coalescing window for HTML regeneration.
+// Zero uses immediate per-event rendering (legacy behavior).
+func WithHTMLDebounce(d time.Duration) TraceOption {
+	return func(tm *TraceMiddleware) {
+		tm.htmlDebounce = d
+	}
+}
+
+// DefaultHTMLDebounce is the default coalescing window for trace HTML regeneration.
+const DefaultHTMLDebounce = time.Second
+
 var parseTraceTemplate = func() (*template.Template, error) {
 	return template.New("trace-viewer").Parse(traceHTMLTemplate)
 }
@@ -87,10 +110,12 @@ func NewTraceMiddleware(outputDir string, opts ...TraceOption) *TraceMiddleware 
 	}
 
 	mw := &TraceMiddleware{
-		outputDir: dir,
-		sessions:  map[string]*traceSession{},
-		tmpl:      tmpl,
-		clock:     time.Now,
+		outputDir:    dir,
+		sessions:     map[string]*traceSession{},
+		tmpl:         tmpl,
+		clock:        time.Now,
+		htmlRender:   true,
+		htmlDebounce: DefaultHTMLDebounce,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -128,6 +153,26 @@ func (m *TraceMiddleware) AfterAgent(ctx context.Context, st *State) error {
 func (m *TraceMiddleware) Close() {
 	if m == nil {
 		return
+	}
+	m.mu.Lock()
+	sessions := make([]*traceSession, 0, len(m.sessions))
+	for _, sess := range m.sessions {
+		sessions = append(sessions, sess)
+	}
+	m.mu.Unlock()
+	for _, sess := range sessions {
+		sess.mu.Lock()
+		if sess.htmlTimer != nil {
+			sess.htmlTimer.Stop()
+			sess.htmlTimer = nil
+		}
+		pending := sess.htmlPending
+		sess.htmlPending = false
+		sess.mu.Unlock()
+		if pending {
+			m.finishDebouncedHTMLRender(sess)
+		}
+		sess.htmlWG.Wait()
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -263,6 +308,45 @@ func (sess *traceSession) append(evt TraceEvent, owner *TraceMiddleware) {
 }
 
 func (m *TraceMiddleware) scheduleHTMLRender(sess *traceSession) {
+	if m == nil || sess == nil || !m.htmlRender {
+		return
+	}
+	if m.htmlDebounce <= 0 {
+		m.runHTMLRender(sess)
+		return
+	}
+	sess.mu.Lock()
+	if sess.htmlTimer != nil {
+		sess.htmlTimer.Stop()
+	}
+	if !sess.htmlPending {
+		sess.htmlPending = true
+		sess.htmlWG.Add(1)
+	}
+	debounce := m.htmlDebounce
+	sess.htmlTimer = time.AfterFunc(debounce, func() {
+		m.finishDebouncedHTMLRender(sess)
+	})
+	sess.mu.Unlock()
+}
+
+func (m *TraceMiddleware) finishDebouncedHTMLRender(sess *traceSession) {
+	if m == nil || sess == nil {
+		return
+	}
+	sess.mu.Lock()
+	sess.htmlTimer = nil
+	sess.htmlPending = false
+	sess.mu.Unlock()
+	defer sess.htmlWG.Done()
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	if err := m.renderHTML(sess); err != nil {
+		m.logf("render html %s: %v", sess.htmlPath, err)
+	}
+}
+
+func (m *TraceMiddleware) runHTMLRender(sess *traceSession) {
 	if m == nil || sess == nil {
 		return
 	}

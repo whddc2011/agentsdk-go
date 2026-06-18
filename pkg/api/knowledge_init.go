@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -11,9 +10,9 @@ import (
 	"github.com/stellarlinkco/agentsdk-go/pkg/tool"
 )
 
-func buildKnowledgeEngine(ctx context.Context, opts Options) (*skylark.Engine, error) {
+func buildKnowledgeEngine(opts Options) (*skylark.Engine, func(), error) {
 	if opts.Knowledge == nil || !opts.Knowledge.Enabled {
-		return nil, nil
+		return nil, nil, nil
 	}
 	k := opts.Knowledge
 	indexDir := strings.TrimSpace(k.IndexDir)
@@ -26,26 +25,11 @@ func buildKnowledgeEngine(ctx context.Context, opts Options) (*skylark.Engine, e
 		var err error
 		emb, err = skylark.NewEmbedderFromEnv()
 		if err != nil {
-			return nil, fmt.Errorf("knowledge: embedder: %w", err)
+			return nil, nil, fmt.Errorf("knowledge: embedder: %w", err)
 		}
 	}
 
-	eng, err := skylark.NewEngine(indexDir, emb)
-	if err != nil {
-		return nil, err
-	}
-
-	vaultDir := strings.TrimSpace(k.VaultDir)
-	docs, err := skylark.SyncVault(vaultDir)
-	if err != nil {
-		_ = eng.Close()
-		return nil, fmt.Errorf("knowledge: sync vault: %w", err)
-	}
-	if err := eng.Rebuild(ctx, docs); err != nil {
-		_ = eng.Close()
-		return nil, fmt.Errorf("knowledge: rebuild index: %w", err)
-	}
-	return eng, nil
+	return skylark.AcquireEngine(indexDir, emb)
 }
 
 func registerKnowledgeTools(registry *tool.Registry, engine *skylark.Engine, opts Options, settings *config.Settings) error {

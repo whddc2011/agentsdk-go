@@ -45,15 +45,16 @@ func streamEmitFromContext(ctx context.Context) streamEmitFunc {
 
 // Runtime exposes the unified SDK surface that powers CLI/CI/enterprise entrypoints.
 type Runtime struct {
-	opts            Options
-	sbRoot          string
-	registry        *tool.Registry
-	executor        *tool.Executor
-	hooks           *hooks.Executor
-	histories       *historyStore
-	compactor       *compactor
-	knowledgeEngine *skylark.Engine
-	evolutionStore  *evolution.Store
+	opts             Options
+	sbRoot           string
+	registry         *tool.Registry
+	executor         *tool.Executor
+	hooks            *hooks.Executor
+	histories        *historyStore
+	compactor        *compactor
+	knowledgeEngine  *skylark.Engine
+	knowledgeRelease func()
+	evolutionStore   *evolution.Store
 
 	mu sync.RWMutex
 
@@ -165,15 +166,16 @@ func New(ctx context.Context, opts Options) (*Runtime, error) {
 	}
 
 	var knowledgeEng *skylark.Engine
+	var knowledgeRelease func()
 	if opts.Knowledge != nil && opts.Knowledge.Enabled {
 		var err error
-		knowledgeEng, err = buildKnowledgeEngine(ctx, opts)
+		knowledgeEng, knowledgeRelease, err = buildKnowledgeEngine(opts)
 		if err != nil {
 			return nil, err
 		}
 		if err := registerKnowledgeTools(registry, knowledgeEng, opts, settings); err != nil {
-			if knowledgeEng != nil {
-				_ = knowledgeEng.Close()
+			if knowledgeRelease != nil {
+				knowledgeRelease()
 			}
 			return nil, err
 		}
@@ -206,15 +208,16 @@ func New(ctx context.Context, opts Options) (*Runtime, error) {
 	}
 
 	rt := &Runtime{
-		opts:            opts,
-		sbRoot:          sbRoot,
-		registry:        registry,
-		executor:        executor,
-		hooks:           hooks,
-		histories:       histories,
-		compactor:       compactor,
-		knowledgeEngine: knowledgeEng,
-		evolutionStore:  evolutionStore,
+		opts:             opts,
+		sbRoot:           sbRoot,
+		registry:         registry,
+		executor:         executor,
+		hooks:            hooks,
+		histories:        histories,
+		compactor:        compactor,
+		knowledgeEngine:  knowledgeEng,
+		knowledgeRelease: knowledgeRelease,
+		evolutionStore:   evolutionStore,
 	}
 	return rt, nil
 }
@@ -374,10 +377,9 @@ func (rt *Runtime) Close() error {
 		if rt.registry != nil {
 			rt.registry.Close()
 		}
-		if rt.knowledgeEngine != nil {
-			if e := rt.knowledgeEngine.Close(); e != nil {
-				log.Printf("api: knowledge engine close: %v", e)
-			}
+		if rt.knowledgeRelease != nil {
+			rt.knowledgeRelease()
+			rt.knowledgeRelease = nil
 		}
 		if rt.opts.tracer != nil {
 			if e := rt.opts.tracer.Shutdown(); e != nil {

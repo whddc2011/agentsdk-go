@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/blevesearch/bleve/v2"
 	"github.com/blevesearch/bleve/v2/mapping"
@@ -26,6 +27,8 @@ type Engine struct {
 
 	TextWeight float64
 	VecWeight  float64
+
+	mu sync.RWMutex
 }
 
 // NewEngine opens or creates indexes under dataDir (.agents/skylark by default).
@@ -104,6 +107,8 @@ func (e *Engine) Rebuild(ctx context.Context, docs []Document) error {
 	if e == nil || e.idx == nil {
 		return fmt.Errorf("skylark: engine is nil")
 	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	if err := e.idx.Close(); err != nil {
 		return fmt.Errorf("skylark: close index: %w", err)
 	}
@@ -173,6 +178,8 @@ func (e *Engine) SearchIndex(ctx context.Context, queryText string, kinds map[st
 	if e == nil || e.idx == nil {
 		return nil, fmt.Errorf("skylark: engine is nil")
 	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	q := strings.TrimSpace(queryText)
 	if q == "" {
 		return nil, nil
@@ -322,5 +329,12 @@ func (e *Engine) Close() error {
 	if e == nil || e.idx == nil {
 		return nil
 	}
-	return e.idx.Close()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.idx == nil {
+		return nil
+	}
+	err := e.idx.Close()
+	e.idx = nil
+	return err
 }
